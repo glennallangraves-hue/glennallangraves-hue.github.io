@@ -60,7 +60,7 @@ class PosterApp {
         this.flatList.push({
           title,
           location,
-          imagePath: `./posters/${title}.png`
+          imagePath: `../posters/${title}.png`
         });
       });
     }
