@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CyberGlass Poster Vault</title>
+    <!-- Inter & JetBrains Mono Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+    <!-- Ambient Glowing Orbs Background -->
+    <div class="bg-orb orb-indigo"></div>
+    <div class="bg-orb orb-purple"></div>
+
+    <div class="app-container" id="appContainer">
+
+        <!-- Top Header Navigation -->
+        <header class="app-header" id="appHeader">
+            <a href="#" class="brand-logo" id="brandHome">
+                <div class="brand-icon">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
+                </div>
+                <span>POSTER<span class="highlight">VAULT</span></span>
+            </a>
+
+            <!-- Small Header Search (Shows when on Results page) -->
+            <div class="header-search-wrap" id="headerSearchWrap">
+                <button class="header-search-btn" id="headerSearchBtn">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+                    <span id="headerQueryDisplay">Search posters...</span>
+                    <kbd>/</kbd>
+                </button>
+            </div>
+        </header>
+
+        <!-- Main Hero Section (Home Mode) -->
+        <main class="hero-section" id="heroSection">
+            <div class="hero-badge">
+                <span class="status-dot"></span>
+                <span>ARCHIVE INDEX ACTIVE</span>
+            </div>
+
+            <h1 class="hero-title">Poster Archives</h1>
+            <p class="hero-subtitle">Instant clientside lookup across stored physical & digital archives</p>
+
+            <!-- Search Component Container -->
+            <div class="search-box-container" id="searchBoxContainer">
+                <div class="search-input-wrapper" id="searchInputWrapper">
+                    <svg class="search-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+                    
+                    <div class="input-stack">
+                        <input type="text" id="ghostInput" class="ghost-input" tabindex="-1" aria-hidden="true" readonly />
+                        <input type="text" id="searchInput" class="search-input" autocomplete="off" spellcheck="false" placeholder="Search title or location (e.g. Inception, Shelf A)..." />
+                    </div>
+
+                    <button class="clear-btn" id="clearBtn" title="Clear input">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
+                    </button>
+                </div>
+
+                <!-- Keyboard shortcuts indicator bar -->
+                <div class="kbd-hints">
+                    <span><kbd>Tab</kbd> / <kbd>→</kbd> Autofill</span>
+                    <span><kbd>↑</kbd><kbd>↓</kbd> Navigate</span>
+                    <span><kbd>Enter</kbd> Search</span>
+                    <span><kbd>Esc</kbd> Clear</span>
+                </div>
+
+                <!-- Suggestions Dropdown Menu -->
+                <div class="suggestions-dropdown" id="suggestionsDropdown"></div>
+            </div>
+        </main>
+
+        <!-- Results View Section -->
+        <section class="results-section hidden" id="resultsSection">
+            <div class="results-header">
+                <div>
+                    <h2 class="results-title">Search Results</h2>
+                    <p class="results-meta" id="resultsMeta">Found 0 posters</p>
+                </div>
+            </div>
+
+            <div class="results-grid" id="resultsGrid"></div>
+        </section>
+
+    </div>
+
+    <!-- Modal Backdrop & Card Preview -->
+    <div class="modal-backdrop hidden" id="modalBackdrop">
+        <div class="modal-card" id="modalCard">
+            <button class="modal-close-btn" id="modalCloseBtn" title="Close (Esc)">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
+            </button>
+            <div class="modal-poster-wrap" id="modalPosterWrap">
+                <!-- Dynamic Image or Fallback SVG -->
+            </div>
+            <div class="modal-details">
+                <div class="modal-badge-row">
+                    <span class="location-badge" id="modalLocation">Location</span>
+                    <span class="status-badge" id="modalStatus">Verified Entry</span>
+                </div>
+                <h2 class="modal-title" id="modalTitle">Movie Title</h2>
+                <div class="modal-info-grid">
+                    <div class="info-block">
+                        <span class="info-label">FILE PATH</span>
+                        <span class="info-value mono" id="modalPath">movie.png</span>
+                    </div>
+                    <div class="info-block">
+                        <span class="info-label">STORAGE KEY</span>
+                        <span class="info-value mono" id="modalKey">LOC-000</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+</html>
