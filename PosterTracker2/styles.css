@@ -645,6 +645,62 @@ kbd {
   color: var(--text-secondary);
 }
 
+/* Export Button */
+.export-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.5rem 1rem;
+    background: var(--primary-glow, #6366f1);
+    color: #fff;
+    border: none;
+    border-radius: 8px;
+    font-size: 0.875rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition: transform 0.2s ease, opacity 0.2s ease;
+}
+
+.export-btn:hover {
+    transform: translateY(-1px);
+    opacity: 0.9;
+}
+
+.export-btn.hidden {
+    display: none;
+}
+
+/* Drag & Drop Visual Target */
+.poster-card {
+    transition: border-color 0.2s ease, transform 0.2s ease;
+    border: 2px dashed transparent;
+}
+
+.poster-card.drag-over {
+    border-color: #6366f1 !important;
+    background: rgba(99, 102, 241, 0.1);
+    transform: scale(1.02);
+}
+
+.poster-card.is-staged {
+    border: 1px solid rgba(99, 102, 241, 0.5);
+}
+
+/* Dropzone Fallback Box */
+.drop-zone-prompt {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    height: 100%;
+    min-height: 220px;
+    padding: 1rem;
+    text-align: center;
+    color: var(--text-muted, #94a3b8);
+    gap: 0.5rem;
+    font-size: 0.8rem;
+}
+
 /* Mobile Responsiveness */
 @media (max-width: 640px) {
   .modal-card {
