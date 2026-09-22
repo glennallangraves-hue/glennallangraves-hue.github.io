@@ -1,10 +1,14 @@
+// Application State & Manager
 class PosterApp {
   constructor() {
     this.dataset = {};
     this.flatList = [];
     this.stagedImages = new Map(); // Map<title, File>
     this.db = null;
+    this.activeIndex = -1;
+    this.currentMatches = [];
 
+    // DOM Elements
     this.dom = {
       appContainer: document.getElementById('appContainer'),
       heroSection: document.getElementById('heroSection'),
@@ -85,7 +89,7 @@ class PosterApp {
     store.put({ title, file, updatedAt: Date.now() });
   }
 
-  // --- Data Loading & Search ---
+  // --- Data Loading & Extensions ---
   async loadData() {
     try {
       const res = await fetch('data.json');
@@ -102,16 +106,40 @@ class PosterApp {
         this.flatList.push({
           title,
           location,
-          imagePath: `../posters/${title}.png`
+          candidatePaths: [
+            `../posters/${title}.png`,
+            `../posters/${title}.jpg`,
+            `../posters/${title}.jpeg`,
+            `../posters/${title}.webp`
+          ]
         });
       });
     }
   }
 
+  tryLoadStaticImage(candidatePaths, index = 0) {
+    return new Promise((resolve) => {
+      if (index >= candidatePaths.length) {
+        resolve(null);
+        return;
+      }
+
+      const img = new Image();
+      img.src = candidatePaths[index];
+      img.onload = () => resolve({ img, path: candidatePaths[index] });
+      img.onerror = () => {
+        this.tryLoadStaticImage(candidatePaths, index + 1).then(resolve);
+      };
+    });
+  }
+
+  // --- Event Handling & Routing ---
   bindEvents() {
     window.addEventListener('hashchange', () => this.handleRoute());
+
     this.dom.searchInput.addEventListener('input', () => this.onInputChanged());
     this.dom.searchInput.addEventListener('keydown', (e) => this.onKeyDown(e));
+
     this.dom.clearBtn.addEventListener('click', () => this.clearSearch());
 
     this.dom.headerSearchBtn.addEventListener('click', () => {
@@ -126,7 +154,9 @@ class PosterApp {
       this.clearSearch();
     });
 
-    this.dom.exportZipBtn.addEventListener('click', () => this.exportZip());
+    if (this.dom.exportZipBtn) {
+      this.dom.exportZipBtn.addEventListener('click', () => this.exportZip());
+    }
 
     window.addEventListener('keydown', (e) => {
       if (e.key === '/' && document.activeElement !== this.dom.searchInput) {
@@ -155,6 +185,7 @@ class PosterApp {
     if (hash.startsWith('#results')) {
       const urlParams = new URLSearchParams(hash.split('?')[1] || '');
       const query = urlParams.get('q') || '';
+      
       this.dom.searchInput.value = query;
       this.dom.headerQueryDisplay.textContent = query || 'Search posters...';
       this.showResultsView(query);
@@ -171,6 +202,7 @@ class PosterApp {
 
   updateMatches(query) {
     const cleanQuery = query.toLowerCase().trim();
+
     if (!cleanQuery) {
       this.currentMatches = [];
       this.dom.ghostInput.value = '';
@@ -201,6 +233,7 @@ class PosterApp {
       this.dom.ghostInput.value = '';
       return;
     }
+
     const topMatch = this.currentMatches[0].title;
     if (topMatch.toLowerCase().startsWith(userQuery.toLowerCase())) {
       this.dom.ghostInput.value = userQuery + topMatch.slice(userQuery.length);
@@ -214,6 +247,7 @@ class PosterApp {
       this.hideSuggestions();
       return;
     }
+
     this.dom.suggestionsDropdown.innerHTML = '';
     const visibleItems = this.currentMatches.slice(0, 6);
 
@@ -224,10 +258,12 @@ class PosterApp {
         <span class="item-title">${this.highlightMatch(item.title, this.dom.searchInput.value)}</span>
         <span class="item-location">${item.location}</span>
       `;
+
       el.addEventListener('click', () => {
         this.dom.searchInput.value = item.title;
         this.executeSearch(item.title);
       });
+
       this.dom.suggestionsDropdown.appendChild(el);
     });
 
@@ -242,6 +278,7 @@ class PosterApp {
 
   onKeyDown(e) {
     const items = this.dom.suggestionsDropdown.querySelectorAll('.suggestion-item');
+
     if (e.key === 'Tab' || e.key === 'ArrowRight') {
       if (this.dom.ghostInput.value) {
         e.preventDefault();
@@ -300,6 +337,7 @@ class PosterApp {
     window.location.hash = `#results?q=${encodeURIComponent(query.trim())}`;
   }
 
+  // --- Views & State Toggle ---
   showHomeView() {
     this.dom.appContainer.classList.remove('results-mode');
     this.dom.resultsSection.classList.add('hidden');
@@ -310,11 +348,13 @@ class PosterApp {
   showResultsView(query) {
     this.dom.appContainer.classList.add('results-mode');
     this.dom.resultsSection.classList.remove('hidden');
+    
     const cleanQ = query.toLowerCase();
     const results = this.flatList.filter(item => 
       item.title.toLowerCase().includes(cleanQ) || 
       item.location.toLowerCase().includes(cleanQ)
     );
+
     this.renderResultsGrid(results);
   }
 
@@ -322,7 +362,7 @@ class PosterApp {
     this.dom.heroSection.appendChild(this.dom.searchBoxContainer);
   }
 
-  // --- Rendering Grid with Drag & Drop Staging ---
+  // --- Grid & Drag and Drop Rendering ---
   renderResultsGrid(results) {
     this.dom.resultsGrid.innerHTML = '';
     this.dom.resultsMeta.textContent = `Found ${results.length} result${results.length === 1 ? '' : 's'}`;
@@ -344,7 +384,6 @@ class PosterApp {
       const imgWrap = document.createElement('div');
       imgWrap.className = 'poster-img-wrap';
 
-      // Check if file exists in staged IndexedDB state
       if (this.stagedImages.has(item.title)) {
         const file = this.stagedImages.get(item.title);
         const objectUrl = URL.createObjectURL(file);
@@ -352,25 +391,27 @@ class PosterApp {
         img.src = objectUrl;
         imgWrap.appendChild(img);
         card.classList.add('is-staged');
+        card.dataset.resolvedPath = `${item.title}.${file.name.split('.').pop() || 'png'}`;
       } else {
-        // Attempt loading standard static path
-        const img = new Image();
-        img.src = item.imagePath;
-        img.onload = () => imgWrap.appendChild(img);
-        img.onerror = () => {
-          imgWrap.innerHTML = `
-            <div class="drop-zone-prompt">
-              <svg class="fallback-svg" width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-                <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/>
-                <path d="M12 8v8m-4-4h8"/>
-              </svg>
-              <span>Drag & drop image to stage</span>
-            </div>
-          `;
-        };
+        this.tryLoadStaticImage(item.candidatePaths).then(result => {
+          if (result) {
+            imgWrap.appendChild(result.img);
+            card.dataset.resolvedPath = result.path.replace('../posters/', '');
+          } else {
+            imgWrap.innerHTML = `
+              <div class="drop-zone-prompt">
+                <svg class="fallback-svg" width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                  <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/>
+                  <path d="M12 8v8m-4-4h8"/>
+                </svg>
+                <span>Drag & drop image to stage (.png, .jpg, .jpeg, .webp)</span>
+              </div>
+            `;
+            card.dataset.resolvedPath = `${item.title}.png`;
+          }
+        });
       }
 
-      // Drag and Drop Event Listeners
       card.addEventListener('dragover', (e) => {
         e.preventDefault();
         card.classList.add('drag-over');
@@ -387,14 +428,10 @@ class PosterApp {
         const files = e.dataTransfer.files;
         if (files.length > 0 && files[0].type.startsWith('image/')) {
           const file = files[0];
-          
-          // Store locally and persist to IndexedDB
           this.stagedImages.set(item.title, file);
           await this.saveStagedToDB(item.title, file);
-          
           this.updateExportButton();
           
-          // Re-render current query results to show updated poster state
           const currentQuery = new URLSearchParams(window.location.hash.split('?')[1] || '').get('q') || '';
           this.showResultsView(currentQuery);
         }
@@ -410,10 +447,10 @@ class PosterApp {
       card.appendChild(imgWrap);
       card.appendChild(info);
 
-      card.addEventListener('click', (e) => {
-        // Prevent opening modal when dragging/dropping
+      card.addEventListener('click', () => {
         if (!card.classList.contains('drag-over')) {
-          this.openModal(item, imgWrap.cloneNode(true));
+          const resolvedPath = card.dataset.resolvedPath || `${item.title}.png`;
+          this.openModal(item, imgWrap.cloneNode(true), resolvedPath);
         }
       });
 
@@ -422,31 +459,25 @@ class PosterApp {
   }
 
   updateExportButton() {
+    if (!this.dom.exportZipBtn || !this.dom.stagedCount) return;
     const count = this.stagedImages.size;
     this.dom.stagedCount.textContent = count;
-    if (count > 0) {
-      this.dom.exportZipBtn.classList.remove('hidden');
-    } else {
-      this.dom.exportZipBtn.classList.add('hidden');
-    }
+    this.dom.exportZipBtn.classList.toggle('hidden', count === 0);
   }
 
-  // --- Export Staged Posters as a ZIP Archive ---
+  // --- JSZip Export ---
   async exportZip() {
-    if (this.stagedImages.size === 0) return;
+    if (this.stagedImages.size === 0 || typeof JSZip === 'undefined') return;
 
     const zip = new JSZip();
     const folder = zip.folder("posters");
 
     for (const [title, file] of this.stagedImages.entries()) {
-      // Preserve extension or default to .png
       const ext = file.name.split('.').pop() || 'png';
       folder.file(`${title}.${ext}`, file);
     }
 
     const content = await zip.generateAsync({ type: "blob" });
-    
-    // Trigger download
     const a = document.createElement('a');
     a.href = URL.createObjectURL(content);
     a.download = "posters-update.zip";
@@ -455,11 +486,11 @@ class PosterApp {
     document.body.removeChild(a);
   }
 
-  // --- Modal Handling ---
-  openModal(item, clonedImgNode) {
+  // --- Modal Display ---
+  openModal(item, clonedImgNode, resolvedPath) {
     this.dom.modalTitle.textContent = item.title;
     this.dom.modalLocation.textContent = item.location;
-    this.dom.modalPath.textContent = `${item.title}.png`;
+    this.dom.modalPath.textContent = resolvedPath || `${item.title}.png`;
     this.dom.modalKey.textContent = `KEY-${Math.floor(1000 + Math.random() * 9000)}`;
 
     this.dom.modalPosterWrap.innerHTML = '';
@@ -473,6 +504,7 @@ class PosterApp {
   }
 }
 
+// Instantiate application on DOM Load
 document.addEventListener('DOMContentLoaded', () => {
   window.app = new PosterApp();
 });
