@@ -44,6 +44,10 @@ class PosterApp {
     await this.initDB();
     await this.loadStagedFromDB();
     await this.loadData();
+    
+    // Background purge of locally staged items if they now exist on static server
+    this.cleanupStagedIfUploaded();
+
     this.bindEvents();
     this.handleRoute();
   }
@@ -87,6 +91,45 @@ class PosterApp {
     const tx = this.db.transaction('staged_posters', 'readwrite');
     const store = tx.objectStore('staged_posters');
     store.put({ title, file, updatedAt: Date.now() });
+  }
+
+  async deleteFromDB(title) {
+    if (!this.db) return;
+    return new Promise((resolve) => {
+      const tx = this.db.transaction('staged_posters', 'readwrite');
+      const store = tx.objectStore('staged_posters');
+      const req = store.delete(title);
+      req.onsuccess = () => {
+        this.stagedImages.delete(title);
+        this.updateExportButton();
+        resolve();
+      };
+    });
+  }
+
+  // --- Background Sync / Purge Staged Items ---
+  async cleanupStagedIfUploaded() {
+    if (this.stagedImages.size === 0) return;
+
+    for (const [title, file] of this.stagedImages.entries()) {
+      const ext = file.name.split('.').pop() || 'png';
+      const item = this.flatList.find(i => i.title === title);
+      
+      const candidatePaths = item ? item.candidatePaths : [
+        `../posters/${title}.${ext}`,
+        `../posters/${title}.png`,
+        `../posters/${title}.jpg`,
+        `../posters/${title}.jpeg`,
+        `../posters/${title}.webp`
+      ];
+
+      // Check if image now exists on static server
+      const staticImage = await this.tryLoadStaticImage(candidatePaths);
+      if (staticImage) {
+        // Image now exists on server, remove from local storage
+        await this.deleteFromDB(title);
+      }
+    }
   }
 
   // --- Data Loading & Extensions ---
