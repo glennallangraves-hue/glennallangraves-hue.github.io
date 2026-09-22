@@ -1,12 +1,10 @@
-// Application State & Manager
 class PosterApp {
   constructor() {
     this.dataset = {};
-    this.flatList = []; // [{ title, location, imagePath }]
-    this.activeIndex = -1;
-    this.currentMatches = [];
-    
-    // DOM Elements
+    this.flatList = [];
+    this.stagedImages = new Map(); // Map<title, File>
+    this.db = null;
+
     this.dom = {
       appContainer: document.getElementById('appContainer'),
       heroSection: document.getElementById('heroSection'),
@@ -22,6 +20,8 @@ class PosterApp {
       headerSearchBtn: document.getElementById('headerSearchBtn'),
       headerQueryDisplay: document.getElementById('headerQueryDisplay'),
       brandHome: document.getElementById('brandHome'),
+      exportZipBtn: document.getElementById('exportZipBtn'),
+      stagedCount: document.getElementById('stagedCount'),
       // Modal
       modalBackdrop: document.getElementById('modalBackdrop'),
       modalCard: document.getElementById('modalCard'),
@@ -37,12 +37,55 @@ class PosterApp {
   }
 
   async init() {
+    await this.initDB();
+    await this.loadStagedFromDB();
     await this.loadData();
     this.bindEvents();
     this.handleRoute();
   }
 
-  // Load sample dataset or json file
+  // --- IndexedDB Persistence ---
+  initDB() {
+    return new Promise((resolve, reject) => {
+      const req = indexedDB.open('PosterStagingDB', 1);
+      req.onupgradeneeded = (e) => {
+        const db = e.target.result;
+        if (!db.objectStoreNames.contains('staged_posters')) {
+          db.createObjectStore('staged_posters', { keyPath: 'title' });
+        }
+      };
+      req.onsuccess = (e) => {
+        this.db = e.target.result;
+        resolve();
+      };
+      req.onerror = (e) => reject(e.target.error);
+    });
+  }
+
+  async loadStagedFromDB() {
+    if (!this.db) return;
+    return new Promise((resolve) => {
+      const tx = this.db.transaction('staged_posters', 'readonly');
+      const store = tx.objectStore('staged_posters');
+      const req = store.getAll();
+      req.onsuccess = () => {
+        req.result.forEach(entry => {
+          this.stagedImages.set(entry.title, entry.file);
+        });
+        this.updateExportButton();
+        resolve();
+      };
+    });
+  }
+
+  async saveStagedToDB(title, file) {
+    if (!this.db) return;
+    const tx = this.db.transaction('staged_posters', 'readwrite');
+    const store = tx.objectStore('staged_posters');
+    store.put({ title, file, updatedAt: Date.now() });
+  }
+
+  // --- Data Loading & Search ---
   async loadData() {
     try {
       const res = await fetch('data.json');
@@ -53,7 +96,6 @@ class PosterApp {
       this.dataset = {};
     }
 
-    // Flatten data for efficient search indexing
     this.flatList = [];
     for (const [location, movies] of Object.entries(this.dataset)) {
       movies.forEach(title => {
@@ -67,16 +109,11 @@ class PosterApp {
   }
 
   bindEvents() {
-    // Hash route changes
     window.addEventListener('hashchange', () => this.handleRoute());
-
-    // Input events
     this.dom.searchInput.addEventListener('input', () => this.onInputChanged());
     this.dom.searchInput.addEventListener('keydown', (e) => this.onKeyDown(e));
-
     this.dom.clearBtn.addEventListener('click', () => this.clearSearch());
 
-    // Focus restore when clicking header search pill
     this.dom.headerSearchBtn.addEventListener('click', () => {
       this.moveSearchToCenter();
       window.location.hash = '';
@@ -89,7 +126,8 @@ class PosterApp {
       this.clearSearch();
     });
 
-    // Global Key Shortcuts ('/' to focus search, Esc to dismiss modal/dropdown)
+    this.dom.exportZipBtn.addEventListener('click', () => this.exportZip());
+
     window.addEventListener('keydown', (e) => {
       if (e.key === '/' && document.activeElement !== this.dom.searchInput) {
         e.preventDefault();
@@ -100,27 +138,23 @@ class PosterApp {
       }
     });
 
-    // Click outside to hide dropdown
     document.addEventListener('click', (e) => {
       if (!this.dom.searchBoxContainer.contains(e.target)) {
         this.hideSuggestions();
       }
     });
 
-    // Modal Close
     this.dom.modalCloseBtn.addEventListener('click', () => this.closeModal());
     this.dom.modalBackdrop.addEventListener('click', (e) => {
       if (e.target === this.dom.modalBackdrop) this.closeModal();
     });
   }
 
-  // Handle URL Routing via window.location.hash (#results?q=query)
   handleRoute() {
     const hash = window.location.hash;
     if (hash.startsWith('#results')) {
       const urlParams = new URLSearchParams(hash.split('?')[1] || '');
       const query = urlParams.get('q') || '';
-      
       this.dom.searchInput.value = query;
       this.dom.headerQueryDisplay.textContent = query || 'Search posters...';
       this.showResultsView(query);
@@ -131,19 +165,12 @@ class PosterApp {
 
   onInputChanged() {
     const value = this.dom.searchInput.value;
-    
-    if (value.trim().length > 0) {
-      this.dom.clearBtn.classList.add('visible');
-    } else {
-      this.dom.clearBtn.classList.remove('visible');
-    }
-
+    this.dom.clearBtn.classList.toggle('visible', value.trim().length > 0);
     this.updateMatches(value);
   }
 
   updateMatches(query) {
     const cleanQuery = query.toLowerCase().trim();
-
     if (!cleanQuery) {
       this.currentMatches = [];
       this.dom.ghostInput.value = '';
@@ -151,17 +178,16 @@ class PosterApp {
       return;
     }
 
-    // Filter and score matches
     this.currentMatches = this.flatList
       .filter(item => 
         item.title.toLowerCase().includes(cleanQuery) || 
         item.location.toLowerCase().includes(cleanQuery)
       )
       .sort((a, b) => {
-        const aTitleStarts = a.title.toLowerCase().startsWith(cleanQuery);
-        const bTitleStarts = b.title.toLowerCase().startsWith(cleanQuery);
-        if (aTitleStarts && !bTitleStarts) return -1;
-        if (!aTitleStarts && bTitleStarts) return 1;
+        const aStarts = a.title.toLowerCase().startsWith(cleanQuery);
+        const bStarts = b.title.toLowerCase().startsWith(cleanQuery);
+        if (aStarts && !bStarts) return -1;
+        if (!aStarts && bStarts) return 1;
         return a.title.localeCompare(b.title);
       });
 
@@ -175,10 +201,8 @@ class PosterApp {
       this.dom.ghostInput.value = '';
       return;
     }
-
     const topMatch = this.currentMatches[0].title;
     if (topMatch.toLowerCase().startsWith(userQuery.toLowerCase())) {
-      // Preserve case of typed user text + match remaining tail
       this.dom.ghostInput.value = userQuery + topMatch.slice(userQuery.length);
     } else {
       this.dom.ghostInput.value = '';
@@ -190,10 +214,7 @@ class PosterApp {
       this.hideSuggestions();
       return;
     }
-
     this.dom.suggestionsDropdown.innerHTML = '';
-    
-    // Display up to top 6 items
     const visibleItems = this.currentMatches.slice(0, 6);
 
     visibleItems.forEach((item, index) => {
@@ -203,12 +224,10 @@ class PosterApp {
         <span class="item-title">${this.highlightMatch(item.title, this.dom.searchInput.value)}</span>
         <span class="item-location">${item.location}</span>
       `;
-
       el.addEventListener('click', () => {
         this.dom.searchInput.value = item.title;
         this.executeSearch(item.title);
       });
-
       this.dom.suggestionsDropdown.appendChild(el);
     });
 
@@ -223,9 +242,7 @@ class PosterApp {
 
   onKeyDown(e) {
     const items = this.dom.suggestionsDropdown.querySelectorAll('.suggestion-item');
-
     if (e.key === 'Tab' || e.key === 'ArrowRight') {
-      // Tab or Right Arrow autofills top suggestion / ghost text
       if (this.dom.ghostInput.value) {
         e.preventDefault();
         this.dom.searchInput.value = this.dom.ghostInput.value;
@@ -248,7 +265,6 @@ class PosterApp {
       if (this.activeIndex >= 0 && this.currentMatches[this.activeIndex]) {
         this.dom.searchInput.value = this.currentMatches[this.activeIndex].title;
       }
-
       this.executeSearch(this.dom.searchInput.value);
     }
   }
@@ -258,7 +274,6 @@ class PosterApp {
       if (i === this.activeIndex) {
         item.classList.add('active');
         item.scrollIntoView({ block: 'nearest' });
-        // Update ghost text to active highlighted recommendation
         this.dom.searchInput.value = this.currentMatches[i].title;
         this.dom.ghostInput.value = '';
       } else {
@@ -285,7 +300,6 @@ class PosterApp {
     window.location.hash = `#results?q=${encodeURIComponent(query.trim())}`;
   }
 
-  // Views & State Toggle
   showHomeView() {
     this.dom.appContainer.classList.remove('results-mode');
     this.dom.resultsSection.classList.add('hidden');
@@ -296,14 +310,11 @@ class PosterApp {
   showResultsView(query) {
     this.dom.appContainer.classList.add('results-mode');
     this.dom.resultsSection.classList.remove('hidden');
-    
-    // Perform filtering for results page
     const cleanQ = query.toLowerCase();
     const results = this.flatList.filter(item => 
       item.title.toLowerCase().includes(cleanQ) || 
       item.location.toLowerCase().includes(cleanQ)
     );
-
     this.renderResultsGrid(results);
   }
 
@@ -311,7 +322,7 @@ class PosterApp {
     this.dom.heroSection.appendChild(this.dom.searchBoxContainer);
   }
 
-  // Render Grid Results
+  // --- Rendering Grid with Drag & Drop Staging ---
   renderResultsGrid(results) {
     this.dom.resultsGrid.innerHTML = '';
     this.dom.resultsMeta.textContent = `Found ${results.length} result${results.length === 1 ? '' : 's'}`;
@@ -333,24 +344,61 @@ class PosterApp {
       const imgWrap = document.createElement('div');
       imgWrap.className = 'poster-img-wrap';
 
-      // Check image availability or fallback
-      const img = new Image();
-      img.src = item.imagePath;
-      
-      img.onload = () => {
+      // Check if file exists in staged IndexedDB state
+      if (this.stagedImages.has(item.title)) {
+        const file = this.stagedImages.get(item.title);
+        const objectUrl = URL.createObjectURL(file);
+        const img = document.createElement('img');
+        img.src = objectUrl;
         imgWrap.appendChild(img);
-      };
+        card.classList.add('is-staged');
+      } else {
+        // Attempt loading standard static path
+        const img = new Image();
+        img.src = item.imagePath;
+        img.onload = () => imgWrap.appendChild(img);
+        img.onerror = () => {
+          imgWrap.innerHTML = `
+            <div class="drop-zone-prompt">
+              <svg class="fallback-svg" width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/>
+                <path d="M12 8v8m-4-4h8"/>
+              </svg>
+              <span>Drag & drop image to stage</span>
+            </div>
+          `;
+        };
+      }
 
-      img.onerror = () => {
-        // Fallback Blank SVG graphic with icon
-        imgWrap.innerHTML = `
-          <svg class="fallback-svg" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-            <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/>
-            <circle cx="8.5" cy="8.5" r="1.5"/>
-            <polyline points="21 15 16 10 5 21"/>
-          </svg>
-        `;
-      };
+      // Drag and Drop Event Listeners
+      card.addEventListener('dragover', (e) => {
+        e.preventDefault();
+        card.classList.add('drag-over');
+      });
+
+      card.addEventListener('dragleave', () => {
+        card.classList.remove('drag-over');
+      });
+
+      card.addEventListener('drop', async (e) => {
+        e.preventDefault();
+        card.classList.remove('drag-over');
+
+        const files = e.dataTransfer.files;
+        if (files.length > 0 && files[0].type.startsWith('image/')) {
+          const file = files[0];
+          
+          // Store locally and persist to IndexedDB
+          this.stagedImages.set(item.title, file);
+          await this.saveStagedToDB(item.title, file);
+          
+          this.updateExportButton();
+          
+          // Re-render current query results to show updated poster state
+          const currentQuery = new URLSearchParams(window.location.hash.split('?')[1] || '').get('q') || '';
+          this.showResultsView(currentQuery);
+        }
+      });
 
       const info = document.createElement('div');
       info.className = 'poster-info';
@@ -362,13 +410,52 @@ class PosterApp {
       card.appendChild(imgWrap);
       card.appendChild(info);
 
-      card.addEventListener('click', () => this.openModal(item, imgWrap.cloneNode(true)));
+      card.addEventListener('click', (e) => {
+        // Prevent opening modal when dragging/dropping
+        if (!card.classList.contains('drag-over')) {
+          this.openModal(item, imgWrap.cloneNode(true));
+        }
+      });
 
       this.dom.resultsGrid.appendChild(card);
     });
   }
 
-  // Modal View Display
+  updateExportButton() {
+    const count = this.stagedImages.size;
+    this.dom.stagedCount.textContent = count;
+    if (count > 0) {
+      this.dom.exportZipBtn.classList.remove('hidden');
+    } else {
+      this.dom.exportZipBtn.classList.add('hidden');
+    }
+  }
+
+  // --- Export Staged Posters as a ZIP Archive ---
+  async exportZip() {
+    if (this.stagedImages.size === 0) return;
+
+    const zip = new JSZip();
+    const folder = zip.folder("posters");
+
+    for (const [title, file] of this.stagedImages.entries()) {
+      // Preserve extension or default to .png
+      const ext = file.name.split('.').pop() || 'png';
+      folder.file(`${title}.${ext}`, file);
+    }
+
+    const content = await zip.generateAsync({ type: "blob" });
+    
+    // Trigger download
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(content);
+    a.download = "posters-update.zip";
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+  }
+
+  // --- Modal Handling ---
   openModal(item, clonedImgNode) {
     this.dom.modalTitle.textContent = item.title;
     this.dom.modalLocation.textContent = item.location;
@@ -386,7 +473,6 @@ class PosterApp {
   }
 }
 
-// Instantiate application on DOM Load
 document.addEventListener('DOMContentLoaded', () => {
   window.app = new PosterApp();
 });
